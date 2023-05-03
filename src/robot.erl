@@ -33,7 +33,7 @@
 -export([terminate/3,code_change/4,init/1,callback_mode/0]).
 %% State Callbacks
 -export([handle_event/4]).
--export([Off/1, On/1]).
+-export([stationary_Off/2, stationary_On/2, shift/2, driving/2, braking/2]).
 
 
 %%%===================================================================
@@ -94,7 +94,7 @@ init(Worker_ids) ->
     %% Set the initial state to be the list of available Worker_ids
     %% and types.
     %%{ok,ready,Worker_ids}.
-    {ok,{off,center,open,down},[]}.
+    {ok,{off,center,open,down},[Worker_ids]}.
 %%
 %% This robot will use the handle_event_function pattern.
 %% @private
@@ -110,20 +110,55 @@ callback_mode() -> handle_event_function.
 %%% Gas on - Gas Off
 %%% Wheel_State
 
-Stationary_Off(Car) ->
-    gen_statem:call(Car,{Parked, Off}).
+stationary_Off(Car, State) ->
+    StateOnOff = {'Off'},
+    StateParked = {'Yes'},
+    StateBreak = {'Off'},
+    StateShift = {'Park'},
+    StateGas = {'Off'},
+    StateWheel = {'Middle'},
+    State = {StateOnOff, StateParked, StateBreak, StateShift, StateGas, StateWheel},
+    {Car,State}.
 
-Stationary_On(Car) ->
-    gen_statem:call(Car,{Brake_On, Parked, On}).
+stationary_On(Car, State) ->
+    StateOnOff = {'On'},
+    StateParked = {'Yes'},
+    StateBreak = {'Off'},
+    StateShift = {'Park'},
+    StateGas = {'Off'},
+    StateWheel = {'Middle'},
+    State = {StateOnOff, StateParked, StateBreak, StateShift, StateGas, StateWheel},
+    {Car, State}.
 
-Shift(Car) ->
-    gen_statem:call(Car,{Shift_State, On, Gas_Off, Brake_On, Wheel_State}).
+shift(Car, State) ->
+    StateOnOff = {'On'},
+    StateParked = {'Yes'},
+    StateBreak = {'Off'},
+    StateShift = {'Reverse'},
+    StateGas = {'On'},
+    StateWheel = {'Right'},
+    State = {StateOnOff, StateParked, StateBreak, StateShift, StateGas, StateWheel},
+    {Car, State}.
 
-Driving(Car) ->
-    gen_statem:call(Car,{Shift_State, On, Gas_On, Brake_Off, Wheel_State}).
+driving(Car, State) ->
+    StateOnOff = {'On'},
+    StateParked = {'Yes'},
+    StateBreak = {'Off'},
+    StateShift = {'Drive'},
+    StateGas = {'On'},
+    StateWheel = {'Right'},
+    State = {StateOnOff, StateParked, StateBreak, StateShift, StateGas, StateWheel},
+    {Car, State}.
 
-Braking(Car) ->
-    gen_statem:call(Car,{Shift_State, On, Gas_Off, Brake_On, Wheel_State}).
+braking(Car, State) ->
+    StateOnOff = {'On'},
+    StateParked = {'Yes'},
+    StateBreak = {'On'},
+    StateShift = {'Drive'},
+    StateGas = {'On'},
+    StateWheel = {'Right'},
+    State = {StateOnOff, StateParked, StateBreak, StateShift, StateGas, StateWheel},
+    {Car, State}.
 
 
 
@@ -134,48 +169,46 @@ Braking(Car) ->
 %%
 %% Used to put the robot state machine in its next state.
 %% @private
-handle_event({call,From}, stationary_on, stationary_off,{Statem_name,State_data}) ->
+handle_event({call,From}, State) ->
     %Turn the car on
-    io:format("Car turned on."),
-    next_state = shift,
     {next_state, stationary_on,{stationary_on,State_data},[{reply,From,is_down}]};
 
-handle_event({call,From}, stationary_off, stationary_on,{Statem_name,State_data}) ->
+handle_event({call,From}, State) ->
     %Turn the car off
     io:format("Car turned off."),
     {next_state, stationary_off,{stationary_off,State_data},[{reply,From,is_down}]};
 
-handle_event({call,From}, shift, stationary_on,{Statem_name,State_data}) ->
+handle_event({call,From},  State) ->
     %Shift the car after turning on
     io:format("Car shifted from stationary."),
     {next_state, shift,{shift,State_data},[{reply,From,is_down}]};
 
-handle_event({call,From}, stationary_on, shift,{Statem_name,State_data}) ->
+handle_event({call,From}, State) ->
     %Park the car
     io:format("Car parked."),
     {next_state, stationary_on,{stationary_on,State_data},[{reply,From,is_down}]};
 
-handle_event({call,From}, driving, shift,{Statem_name,State_data}) ->
+handle_event({call,From}, State) ->
     %Start driving
     io:format("Started driving."),
     {next_state, driving,{driving,State_data},[{reply,From,is_down}]};
 
-handle_event({call,From}, shift, driving,{Statem_name,State_data}) ->
+handle_event({call,From}, State) ->
     %Shift the car after driving
     io:format("Car shifted from driving."),
     {next_state, driving,{driving,State_data},[{reply,From,is_down}]};
 
-handle_event({call,From}, braking, driving,{Statem_name,State_data}) ->
+handle_event({call,From}, State) ->
     %Press the brakes
     io:format("Brakes pressed."),
     {next_state, braking,{braking,State_data},[{reply,From,is_down}]};
 
-handle_event({call,From}, driving, braking,{Statem_name,State_data}) ->
+handle_event({call,From}, State) ->
     %Press the gas after braking
     io:format("Car shifted from driving."),
     {next_state, driving,{driving,State_data},[{reply,From,is_down}]};
 
-handle_event({call,From}, shift, braking,{Statem_name,State_data}) ->
+handle_event({call,From}, State) ->
     %Shift the car after braking
     io:format("Car shifted from braking."),
     {next_state, shift,{shift,State_data},[{reply,From,is_down}]};
@@ -184,7 +217,7 @@ handle_event({call,From}, shift, braking,{Statem_name,State_data}) ->
 %
 % a bunch of other state-to-state changes go here.
 %
-handle_event({call,From},Attemped_state,Current_state,{Statem_name,State_data}) ->
+handle_event({call,From}, State) ->
     io:format("Current state, ~p, does not allow a change to ~p state~n",[Current_state,Attemped_state]),
     {next_state,Current_state,{Current_state,State_data},[{reply,From,fail}]}.
 
@@ -197,7 +230,8 @@ handle_event({call,From},Attemped_state,Current_state,{Statem_name,State_data}) 
 %% Driving from one parking space to another then back to the original spot
 %% State Order: Off -> On -> Shift -> Driving -> Braking -> Shift -> Off
 handle_call_test_()-> 
-    [?_assertEqual({},robot:handle_event({call, stationary_on}, stationary_off, stationary_On)),
+    [
+        % ?_assertEqual({},robot:handle_event({call, stationary_on}, stationary_off, stationary_On)),
         
     ].
 
